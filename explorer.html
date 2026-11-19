@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BerthFlow | Berth scheduling simulator</title>
+<style>
+:root{color-scheme:dark;--bg:#0e1a24;--surface:#192b38;--line:#3b5667;--text:#eff6f7;--muted:#b5c8d2;--teal:#80e0c8;--orange:#f5be7b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,sans-serif}main,header,footer{max-width:1180px;margin:auto;padding:24px clamp(18px,4vw,52px)}header,footer{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);gap:12px}footer{border-top:1px solid var(--line);border-bottom:0;color:var(--muted)}a{color:var(--teal)}
+.hero{padding:46px 0 24px;max-width:850px}h1{font-size:clamp(42px,7vw,74px);line-height:1.03;letter-spacing:-.055em;margin:10px 0 18px}h2{letter-spacing:-.025em;margin-top:0}.label{color:var(--teal);font-size:.85rem;letter-spacing:.1em}.muted,.hero p{color:var(--muted)}.hero p{font-size:1.15rem}.panel{padding:clamp(15px,3vw,26px);background:var(--surface);border:1px solid var(--line);margin-bottom:24px}.controls{display:flex;flex-wrap:wrap;gap:20px}label{display:block}select,button{margin:.4rem 0 0;font:inherit;color:var(--text);background:#0f202b;border:1px solid #6f8d9b;border-radius:4px;padding:.55rem .8rem}select{display:block;width:100%}button{cursor:pointer}a:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--teal);outline-offset:3px}
+.scroller{overflow:auto}table{width:100%;text-align:left;border-collapse:collapse;white-space:nowrap;margin-top:10px}th,td{padding:11px 12px;border-bottom:1px solid var(--line)}thead th{font-weight:500;color:var(--muted)}tbody th{font-weight:600}tr.current{background:#203b46}.lead{color:var(--teal);font-weight:600}.chart{min-width:610px;margin:20px 0}.row{display:grid;grid-template-columns:92px minmax(0,1fr);align-items:center;gap:10px;margin:12px 0}.lane{height:36px;position:relative;background:#10202c;border:1px solid var(--line)}.slot{position:absolute;top:5px;height:24px;background:var(--teal);color:#12242a;overflow:hidden;font-size:12px;text-align:center;line-height:24px;white-space:nowrap}.slot.tanker{background:var(--orange)}.axis{display:flex;justify-content:space-between;color:var(--muted);font-size:.87rem}.dot{display:inline-block;width:.65em;height:.65em;background:var(--teal);margin-right:.4em}.dot.tanker{background:var(--orange)}details{margin-top:18px}summary{cursor:pointer}.method{max-width:850px;padding:16px 0 30px}.note{font-size:.91rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<header><strong>BerthFlow</strong><a href="https://github.com/Ehsan-Ch/berthflow-scheduling-lab">GitHub repository</a></header>
+<main>
+<section class="hero"><div class="label">SYNTHETIC PORT SIMULATION</div><h1>What happens when vessels arrive together?</h1><p>Replay the same arrivals under three berth scheduling policies. Compare average waits and long queues, then inspect the berth assignments from an individual run.</p></section>
+<section class="panel">
+<h2>Compare scheduling policies</h2>
+<div class="controls"><label>Traffic scenario<select id="scenario"><option value="steady">Steady arrivals</option><option value="busy">Busy arrivals</option><option value="disrupted" selected>Busy with clustered delays</option></select></label></div>
+<p id="finding" class="lead" aria-live="polite"></p>
+<div class="scroller" tabindex="0" aria-label="Policy comparison"><table><thead><tr><th scope="col">Policy</th><th scope="col">Mean wait</th><th scope="col">Mean of run P90 waits</th><th scope="col">Waits ≥12 h</th><th scope="col">Runs better / worse vs FIFO</th><th scope="col">Median hours saved per run</th></tr></thead><tbody id="comparison"></tbody></table></div>
+<p class="note">Each scenario has 40 runs with 42 vessels per run. Better and worse refer to total waiting time on identical arrivals and service durations. Tied runs are omitted from those counts.</p>
+</section>
+<section class="panel">
+<h2>Inspect a berth schedule</h2>
+<div class="controls"><label>Scheduling policy<select id="policy"><option value="fifo">First arrived</option><option value="shortest" selected>Shortest estimated service</option><option value="aging">Shortest with wait priority</option></select></label></div>
+<p id="run" class="muted" aria-live="polite"></p>
+<p><span class="dot"></span>Cargo &nbsp; <span class="dot tanker"></span>Tanker</p>
+<div class="scroller" tabindex="0" aria-label="Berth occupancy chart"><div id="chart" class="chart"></div></div>
+<button type="button" id="download">Download schedule CSV</button>
+<details><summary>View all vessel assignments</summary><div class="scroller" tabindex="0" aria-label="Vessel assignments"><table><thead><tr><th scope="col">Vessel</th><th scope="col">Type</th><th scope="col">Berth</th><th scope="col">Arrival (h)</th><th scope="col">Start (h)</th><th scope="col">Finish (h)</th><th scope="col">Wait (h)</th></tr></thead><tbody id="assignments"></tbody></table></div></details>
+</section>
+<section class="method"><h2>How the replay works</h2><p>Two berths serve a single vessel type each. A flexible berth serves both. At each arrival or relevant berth release, the scheduler assigns vessels that have already arrived. It fills dedicated berths first. Service runs to completion.</p><p>The shortest-service policy ranks vessels by estimated handling time. The third policy gives vessels already waiting 12 hours priority at the next compatible assignment. Arrival disruptions delay a group of vessels to a shared arrival time. All scenarios use synthetic inputs, and the results apply to those assumptions.</p></section>
+</main><footer><span>BerthFlow</span><span>Discrete-event simulation</span></footer>
+<script type="application/json" id="data"><!-- REPORT --></script>
+<script>
+const report = JSON.parse(document.getElementById('data').textContent);
+const get = id => document.getElementById(id);
+const labels = {fifo:'First arrived (FIFO)',shortest:'Shortest estimated service',aging:'Shortest with wait priority'};
+const hours = minutes => (minutes/60).toFixed(2);
+const berths = ['Cargo','Tanker','Flexible'];
+let rows = [];
+function update() {
+  const scenario = report[get('scenario').value];
+  const policy = get('policy').value;
+  const {fifo,shortest} = scenario.summary;
+  get('finding').textContent = 'Average wait per vessel was '+hours(fifo.mean)+' h with FIFO and '+hours(shortest.mean)+' h with shortest estimated service.';
+  get('comparison').innerHTML = Object.entries(scenario.summary).map(([key,s]) =>
+    '<tr class="'+(key===policy?'current':'')+'"><th scope="row">'+labels[key]+'</th><td>'+hours(s.mean)+' h</td><td>'+hours(s.p90)+' h</td><td>'+s.over12+'</td><td>'+s.better+' / '+s.worse+'</td><td>'+hours(s.median_savings)+' h</td></tr>').join('');
+  const run = scenario.runs[0];
+  rows = run.schedules[policy];
+  const finish = Math.max(...Object.values(run.schedules).flatMap(schedule => schedule.map(r=>r.finish)));
+  const m = run.scores[policy];
+  get('run').textContent = 'Replay '+run.seed+' · '+rows.length+' vessels · '+hours(m.mean)+' h average wait · '+hours(m.max)+' h longest wait.';
+  const lanes = berths.map(b =>
+    '<div class="row"><strong>'+b+'</strong><div class="lane">'+rows.filter(r=>r.berth===b).map(r => {
+      const title = r.name+' · '+r.kind+' · starts '+hours(r.start)+' h · finishes '+hours(r.finish)+' h';
+      return '<span class="slot '+r.kind+'" style="left:'+100*r.start/finish+'%;width:'+100*r.handling/finish+'%" title="'+title+'">'+r.name+'</span>';
+    }).join('')+'</div></div>');
+  const ticks = Array.from({length:5},(_,i)=>'<span>'+Math.round(finish*i/240)+' h</span>');
+  get('chart').innerHTML = lanes.join('')+'<div class="row"><span>Elapsed</span><div class="axis">'+ticks.join('')+'</div></div>';
+  get('assignments').innerHTML = rows.map(r=>'<tr><th scope="row">'+r.name+'</th><td>'+r.kind+'</td><td>'+r.berth+'</td>'+[r.arrival,r.start,r.finish,r.wait].map(n=>'<td>'+hours(n)+'</td>').join('')+'</tr>').join('');
+}
+get('scenario').onchange = update;
+get('policy').onchange = update;
+get('download').onclick = () => {
+  const fields = ['name','kind','eta','arrival','estimate','handling','berth','start','finish','wait'];
+  const lines = [fields.join(','), ...rows.map(r=>fields.map(k=>r[k]).join(','))];
+  const url = URL.createObjectURL(new Blob([lines.join('\n')+'\n'],{type:'text/csv'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'berthflow-'+get('scenario').value+'-'+get('policy').value+'-101.csv';
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+update();
+</script>
+</body></html>
